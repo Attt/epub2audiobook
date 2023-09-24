@@ -44,7 +44,7 @@ class BookParser():
             self.buffer = ""
             self.inAuthor = 1
         elif name == "item":
-            if attributes["id"] in ["ncx", "toc", "ncxtoc", "toc.ncx"]:
+            if attributes["id"] in ["ncx", "toc", "ncxtoc", "toc.ncx","nav"]:
                 self.ncx = attributes["href"]
             if attributes["media-type"] == "application/xhtml+xml":
                 self.id2html[attributes["id"]] = attributes["href"]
@@ -83,6 +83,56 @@ class NavPoint():
         self.playorder = playorder
         self.level = level
         self.text = text
+
+class TocParserForEpub3():
+    def __init__(self, xmlcontent=None):
+        self.id = 0
+        self.xml = xmlcontent
+        self.currentNP = None
+        self.stack = []
+        self.inText = 0
+        self.toc = []
+        self.tocFlg = False
+
+    def startElement(self, name, attributes):
+        if name == "nav":
+            self.tocFlg = attributes['epub:type'] == 'toc'
+        elif name == "li":
+            if self.tocFlg:
+                level = len(self.stack)
+                self.id = self.id + 1
+                self.currentNP = NavPoint('num_'+ str(self.id), str(self.id), level)
+                self.stack.append(self.currentNP)
+                self.toc.append(self.currentNP)
+        elif name == "a":
+            if self.tocFlg:
+                self.currentNP.content = urllib.parse.unquote(attributes["href"])
+                self.buffer = ""
+                self.inText = 1
+
+    def characters(self, data):
+        if self.inText:
+            self.buffer += data
+
+    def endElement(self, name):
+        if name == "nav":
+            self.tocFlg = False
+        elif name == "li":
+            if self.tocFlg:
+                self.currentNP = self.stack.pop()
+        elif name == "a":
+            if self.tocFlg:
+                if self.inText and self.currentNP:
+                    self.currentNP.text = self.buffer
+                self.inText = 0
+
+    def parseToc(self):
+        parser = xml.parsers.expat.ParserCreate()
+        parser.StartElementHandler = self.startElement
+        parser.EndElementHandler = self.endElement
+        parser.CharacterDataHandler = self.characters
+        parser.Parse(self.xml, 1)
+        return self.toc
 
 class TocParser():
     def __init__(self, xmlcontent=None):
@@ -203,6 +253,8 @@ class epub2txt():
 
         print(ncx)
         toc = TocParser(self.file.read(ops + ncx)).parseToc()
+        if len(toc) == 0:
+            toc = TocParserForEpub3(self.file.read(ops + ncx)).parseToc()
 
         fo = open("%s_%s.txt" % (title, author), "w")
         last = ""
