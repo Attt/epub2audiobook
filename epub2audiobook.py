@@ -147,6 +147,9 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
     for text_and_file_name in text_and_file_names:
         (text, file_name) = text_and_file_name
 
+        if len(text.strip()) == 0:
+            continue
+
         audio_file = os.path.join(output_folder, f"{file_name}.mp3")
         subtitle_file = os.path.join(output_folder, f"{file_name}.vtt")
 
