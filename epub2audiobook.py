@@ -230,15 +230,15 @@ if __name__ == "__main__":
                 epub_indexes.append(int(ind))
         
 
-    idx = -1
+    epub_file_idx = -1
     for epub_file in epub_files:
 
-        idx+=1
+        epub_file_idx+=1
         if preview_epubs_only:
-            logger.info(f"[{idx}] - {epub_file}")
+            logger.info(f"[{epub_file_idx}] - {epub_file}")
             continue
 
-        if len(epub_indexes) != 0 and not epub_indexes.__contains__(idx):
+        if len(epub_indexes) != 0 and not epub_indexes.__contains__(epub_file_idx):
             continue
 
         output_folder_and_text_and_file_names = extract_and_save_chapters(epub_file, output_folder)
