@@ -48,7 +48,7 @@ def clearify_html(content):
     content = re.sub(r'<rt>.*?</rt>', '', content.decode('utf-8')).encode('utf-8') # 移除<rt>和</rt>之间的内容(移除注音)
     soup = BeautifulSoup(content, 'lxml')
     title = soup.title.string if soup.title else ''
-    raw = soup.get_text(strip=False)
+    raw = soup.get_text(strip=True)
     return (title, raw)
 
 def find_all_epub_files(epub_file_path):
