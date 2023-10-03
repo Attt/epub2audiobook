@@ -4,6 +4,7 @@ from edge_tts import VoicesManager
 import argparse
 from mutagen.mp3 import MP3
 from mutagen.id3 import TIT2, TPE1, TALB, TRCK
+import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urlunparse
@@ -64,6 +65,15 @@ def find_all_epub_files(epub_file_path):
                 epub_files.append(file_path)
     return epub_files
 
+def get_first_image_item(book, item_type):
+    coverItem = None
+    images = book.get_items_of_type(item_type)
+    for i in images:
+        if coverItem:
+            break
+        coverItem = i
+    return coverItem
+
 # 定义函数来提取章节内容并保存到TXT文件
 def extract_and_save_chapters(epub_file_path, output_folder):
     (book,toc) = get_toc(epub_file_path)
@@ -79,6 +89,17 @@ def extract_and_save_chapters(epub_file_path, output_folder):
     output_folder = os.path.join(output_folder, replace_invalid_characters(book_title))
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
+
+    # 创建封面（如果有）
+    coverItem = get_first_image_item(book, ebooklib.ITEM_COVER)
+    if not coverItem:
+        coverItem = get_first_image_item(book, ebooklib.ITEM_IMAGE)
+
+    if coverItem:
+        file_name, file_extension = os.path.splitext(coverItem.get_name())
+        cover_file_path = os.path.join(output_folder, f'cover{file_extension}')
+        with open(cover_file_path, 'wb') as cover_file:
+            cover_file.write(coverItem.get_content())
 
     text_and_file_names = []
     num = 0
@@ -145,9 +166,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert EPUB to audiobook")
     parser.add_argument("input_file", help="Path to the EPUB file or EPUB files folder")
     parser.add_argument("output_folder", help="Path to the output folder")
-    parser.add_argument("--gender", help="[Female/Male] Voice gender for audio book, will be used if --voice_name is not specified")
-    parser.add_argument("--voice_name", default="ja-JP-NanamiNeural",
-                        help="Voice name for the text-to-speech service (default: ja-JP-NanamiNeural). You can use zh-CN-YunyeNeural for Chinese ebooks.")
+    parser.add_argument("--tts", default=True, help="Convert text to audio (default: True)")
+    parser.add_argument("--gender", default="Female", help="[Female/Male] Voice gender for audio book, --voice_name will be ignored if this value is set")
+    parser.add_argument("--voice_name", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural). show all available voices with command `edge-tts --list-voices`")
     parser.add_argument("--series_name", help="Series name of EPUB files, the album ID3 tag of audio file will be set to this value")
 
     args = parser.parse_args()
@@ -157,6 +178,7 @@ if __name__ == "__main__":
     series_name = args.series_name
     voice = args.voice_name
     gender = args.gender
+    tts = args.tts
     
     # 创建输出文件夹（如果不存在）
     if not os.path.exists(output_folder):
@@ -174,21 +196,21 @@ if __name__ == "__main__":
         
         (output_folder, creator, book_title, language, text_and_file_names) = output_folder_and_text_and_file_names
 
-        
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-        try:
-            id3_tags = loop.run_until_complete(text_to_speech(output_folder, creator, book_title, text_and_file_names, voice, gender, language))
+        if tts == True:
+            loop = asyncio.get_event_loop_policy().get_event_loop()
+            try:
+                id3_tags = loop.run_until_complete(text_to_speech(output_folder, creator, book_title, text_and_file_names, voice, gender, language))
 
-            for id3_tag in id3_tags:
-                (audio_file, book_title, creator, idx) = id3_tag
-                # Add ID3 tags to the generated MP3 file
-                audio = MP3(audio_file)
-                audio["TIT2"] = TIT2(encoding=3, text=book_title)
-                audio["TPE1"] = TPE1(encoding=3, text=creator)
-                if series_name:
-                    audio["TALB"] = TALB(encoding=3, text=series_name)
-                audio["TRCK"] = TRCK(encoding=3, text=idx)
-                audio.save()
-        finally:
-            loop.close()
+                for id3_tag in id3_tags:
+                    (audio_file, book_title, creator, idx) = id3_tag
+                    # Add ID3 tags to the generated MP3 file
+                    audio = MP3(audio_file)
+                    audio["TIT2"] = TIT2(encoding=3, text=book_title)
+                    audio["TPE1"] = TPE1(encoding=3, text=creator)
+                    if series_name:
+                        audio["TALB"] = TALB(encoding=3, text=series_name)
+                    audio["TRCK"] = TRCK(encoding=3, text=idx)
+                    audio.save()
+            finally:
+                loop.close()
     
