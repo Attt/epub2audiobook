@@ -50,6 +50,20 @@ def clearify_html(content):
     raw = soup.get_text(strip=False)
     return (title, raw)
 
+def find_all_epub_files(epub_file_path):
+    epub_files = []
+    if os.path.isdir(epub_file_path):
+        epub_file_names = os.listdir(epub_file_path)
+        for epub_file_name in epub_file_names:
+            file_path = os.path.join(epub_file_path, epub_file_name)
+            if os.path.isdir(file_path):
+                all_epub_files = find_all_epub_files(file_path)
+                for epub_file_path in all_epub_files:
+                    epub_files.append(epub_file_path)
+            elif epub_file_name.endswith(".epub"):
+                epub_files.append(file_path)
+    return epub_files
+
 # 定义函数来提取章节内容并保存到TXT文件
 def extract_and_save_chapters(epub_file_path, output_folder):
     (book,toc) = get_toc(epub_file_path)
@@ -151,9 +165,7 @@ if __name__ == "__main__":
     epub_files = []
     # 是否是目录
     if os.path.isdir(epub_file_path):
-        epub_file_names = os.listdir(epub_file_path)
-        for epub_file_name in epub_file_names:
-            epub_files.append(os.path.join(epub_file_path, epub_file_name))
+        epub_files = find_all_epub_files(epub_file_path)
     else:
         epub_files.append(epub_file_path)
 
