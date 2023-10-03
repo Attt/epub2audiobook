@@ -11,7 +11,9 @@ from urllib.parse import urlparse, urlunparse
 import os
 import re
 import random
+import chardet
 import logging
+from retry import retry
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -45,17 +47,22 @@ def get_toc(epub_file_path):
     return (book, toc)
 
 def clearify_html(content):
-    content = re.sub(r'<rt>.*?</rt>', '', content.decode('utf-8')).encode('utf-8') # 移除<rt>和</rt>之间的内容(移除注音)
-    soup = BeautifulSoup(content, 'lxml')
+    charset = chardet.detect(content)['encoding']
+    if not charset:
+        charset = 'utf-8'
+    logger.info(f"Charset is {charset}")
+    content = re.sub(r'<rt>.*?</rt>', '', content.decode(charset, 'ignore')) # 移除<rt>和</rt>之间的内容(移除注音)
+    soup = BeautifulSoup(content, 'lxml', from_encoding=charset)
     title = soup.title.string if soup.title else ''
     raw = soup.get_text(strip=False)
     raw.strip()
     raw.strip('\n')
-    raw = raw.replace('\r\n', '')
-    raw = raw.replace('\n', '')
-    raw = raw.replace(' ', '')
+    raw = raw.replace('\r\n', ' ')
+    raw = raw.replace('\n', ' ')
+    # raw = raw.replace(' ', '')
     raw = re.sub(r'!\[\]\([^)]+\)', '', raw)
     raw = re.sub(r'\[\]\([^)]+\)', '', raw)
+    raw = raw.encode('utf-8').decode('utf-8', 'ignore')
     return (title, raw)
 
 def find_all_epub_files(epub_file_path):
@@ -133,6 +140,20 @@ def extract_and_save_chapters(epub_file_path, output_folder):
         text_and_file_names.append((raw, txt_file_name))
     return (output_folder, creator, book_title, language, text_and_file_names)
 
+@retry(tries=5, delay=1, backoff=3)
+async def communicate_edge_tts(text, voice, audio_file, subtitle_file):
+    communicate = edge_tts.Communicate(text, voice)
+    submaker = edge_tts.SubMaker()
+    with open(audio_file, "wb") as file:
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                file.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                submaker.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
+
+    with open(subtitle_file, "w", encoding="utf-8") as file:
+        file.write(submaker.generate_subs())
+
 # tts转为audio        
 async def text_to_speech(output_folder, creator, book_title, text_and_file_names, voice, gender, language):
     
@@ -154,18 +175,7 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
         subtitle_file = os.path.join(output_folder, f"{file_name}.vtt")
 
         logger.info(f"Generate audiobook >>>>> {audio_file} <<<<<")
-
-        communicate = edge_tts.Communicate(text, voice)
-        submaker = edge_tts.SubMaker()
-        with open(audio_file, "wb") as file:
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    file.write(chunk["data"])
-                elif chunk["type"] == "WordBoundary":
-                    submaker.create_sub((chunk["offset"], chunk["duration"]), chunk["text"])
-
-        with open(subtitle_file, "w", encoding="utf-8") as file:
-            file.write(submaker.generate_subs())
+        await communicate_edge_tts(text, voice, audio_file, subtitle_file)
 
         id3_tags.append((audio_file, book_title, creator, str(idx)))
         idx+=1
