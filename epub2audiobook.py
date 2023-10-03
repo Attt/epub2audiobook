@@ -66,8 +66,8 @@ def find_all_epub_files(epub_file_path):
             file_path = os.path.join(epub_file_path, epub_file_name)
             if os.path.isdir(file_path):
                 all_epub_files = find_all_epub_files(file_path)
-                for epub_file_path in all_epub_files:
-                    epub_files.append(epub_file_path)
+                for efp in all_epub_files:
+                    epub_files.append(efp)
             elif epub_file_name.endswith(".epub"):
                 epub_files.append(file_path)
     return epub_files
