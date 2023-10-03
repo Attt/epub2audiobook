@@ -162,3 +162,7 @@ cython_debug/
 *.txt
 *.epub
 outputs/
+
+!requirements.txt
+
+.vscode/
