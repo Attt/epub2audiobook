@@ -180,6 +180,9 @@ if __name__ == "__main__":
     parser.add_argument("--gender", default="Female", help="[Female/Male] Voice gender for audio book, --voice_name will be ignored if this value is set")
     parser.add_argument("--voice_name", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural). show all available voices with command `edge-tts --list-voices`")
     parser.add_argument("--series_name", help="Series name of EPUB files, the album ID3 tag of audio file will be set to this value")
+    parser.add_argument("--preview_epubs_only", default=False, help="Preview indexed epub files only (default: False)")
+    parser.add_argument("--select_epubs", help="Index of selected epub files (e.g.: 0-3,5,7, default all epubs)")
+
 
     args = parser.parse_args()
     
@@ -189,6 +192,8 @@ if __name__ == "__main__":
     voice = args.voice_name
     gender = args.gender
     tts = args.tts
+    preview_epubs_only = args.preview_epubs_only
+    select_epubs = args.select_epubs
     
     # 创建输出文件夹（如果不存在）
     if not os.path.exists(output_folder):
@@ -201,7 +206,31 @@ if __name__ == "__main__":
     else:
         epub_files.append(epub_file_path)
 
+    epub_indexes = []
+    if select_epubs:
+        indexes = select_epubs.split(',')
+        for ind in indexes:
+            if ind.__contains__('-'):
+                from_to = ind.split('-')
+                f = int(from_to[0])
+                t = int(from_to[1])
+                for ii in range(f, t+1):
+                     epub_indexes.append(ii)
+            else:
+                epub_indexes.append(int(ind))
+        
+
+    idx = -1
     for epub_file in epub_files:
+
+        idx+=1
+        if preview_epubs_only:
+            logger.info(f"[{idx}] - {epub_file}")
+            continue
+
+        if len(epub_indexes) != 0 and not epub_indexes.__contains__(idx):
+            continue
+
         output_folder_and_text_and_file_names = extract_and_save_chapters(epub_file, output_folder)
         
         (n_output_folder, creator, book_title, language, text_and_file_names) = output_folder_and_text_and_file_names
