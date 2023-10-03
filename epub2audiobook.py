@@ -129,8 +129,8 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert EPUB to audiobook")
-    # parser.add_argument("input_file", help="Path to the EPUB file or EPUB files folder")
-    # parser.add_argument("output_folder", help="Path to the output folder")
+    parser.add_argument("input_file", help="Path to the EPUB file or EPUB files folder")
+    parser.add_argument("output_folder", help="Path to the output folder")
     parser.add_argument("--gender", help="[Female/Male] Voice gender for audio book, will be used if --voice_name is not specified")
     parser.add_argument("--voice_name", default="ja-JP-NanamiNeural",
                         help="Voice name for the text-to-speech service (default: ja-JP-NanamiNeural). You can use zh-CN-YunyeNeural for Chinese ebooks.")
@@ -138,10 +138,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     
-    # epub_file_path = args.input_file
-    # output_folder = args.output_folder
-    epub_file_path = '/Users/atpex/Codes/epub2chapters/input'
-    output_folder = '/Users/atpex/Codes/epub2chapters/output'
+    epub_file_path = args.input_file
+    output_folder = args.output_folder
     series_name = args.series_name
     voice = args.voice_name
     gender = args.gender
