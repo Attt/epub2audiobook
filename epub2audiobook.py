@@ -204,12 +204,12 @@ if __name__ == "__main__":
     for epub_file in epub_files:
         output_folder_and_text_and_file_names = extract_and_save_chapters(epub_file, output_folder)
         
-        (output_folder, creator, book_title, language, text_and_file_names) = output_folder_and_text_and_file_names
+        (n_output_folder, creator, book_title, language, text_and_file_names) = output_folder_and_text_and_file_names
 
         if tts == True:
             loop = asyncio.get_event_loop_policy().get_event_loop()
             try:
-                id3_tags = loop.run_until_complete(text_to_speech(output_folder, creator, book_title, text_and_file_names, voice, gender, language))
+                id3_tags = loop.run_until_complete(text_to_speech(n_output_folder, creator, book_title, text_and_file_names, voice, gender, language))
 
                 for id3_tag in id3_tags:
                     (audio_file, book_title, creator, idx) = id3_tag
