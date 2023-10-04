@@ -67,8 +67,9 @@ def clearify_html(content):
     soup = BeautifulSoup(content, 'lxml', from_encoding=charset)
     title = soup.title.string if soup.title else ''
     raw = soup.get_text(strip=False)
-    raw.strip()
-    raw.strip('\n')
+    raw = raw.strip()
+    raw = raw.strip('\n')
+    raw = raw.strip('\r\n')
     # raw = raw.replace('\r\n', ' ')
     # raw = raw.replace('\n', ' ')
     # raw = raw.replace(' ', '')
