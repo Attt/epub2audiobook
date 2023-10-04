@@ -34,6 +34,18 @@ def replace_invalid_characters(input_string):
     cleaned_string = re.sub(invalid_characters, '_', input_string)
     return cleaned_string
 
+def find_all_chapters(items, toc_link_items):
+    chapters = []
+    current_chapter_items = []
+    
+    for item in items:
+        if item in toc_link_items:
+            chapters.append(current_chapter_items)
+            current_chapter_items = []
+        current_chapter_items.append(item)
+    return chapters
+
+
 def get_toc(epub_file_path):
     book = epub.read_epub(epub_file_path)
     legacy_toc = book.toc
@@ -57,9 +69,10 @@ def clearify_html(content):
     raw = soup.get_text(strip=False)
     raw.strip()
     raw.strip('\n')
-    raw = raw.replace('\r\n', ' ')
-    raw = raw.replace('\n', ' ')
+    # raw = raw.replace('\r\n', ' ')
+    # raw = raw.replace('\n', ' ')
     # raw = raw.replace(' ', '')
+    raw = re.sub(r'(\r\n|\n)+', '\n', raw)
     raw = re.sub(r'!\[\]\([^)]+\)', '', raw)
     raw = re.sub(r'\[\]\([^)]+\)', '', raw)
     raw = raw.encode('utf-8').decode('utf-8', 'ignore')
@@ -122,11 +135,48 @@ def extract_and_save_chapters(epub_file_path, output_folder):
                 cover_file.write(coverItem.get_content())
 
     text_and_file_names = []
-    num = 0
+
+    # 根据TOC拆分全文
+    items = list(book.get_items())
+    initial_chapter_item = items[0]
+    toc_link_items = []
+    item_map_to_link_title = {}
     for link in toc:
-        item = book.get_item_with_href(remove_url_fragment(link.href))
-        (title, raw) = clearify_html(item.get_content())
-        chapter_title = title if title else link.title
+        toc_link_item = book.get_item_with_href(remove_url_fragment(link.href))
+        toc_link_items.append(toc_link_item)
+        item_map_to_link_title[str(toc_link_item)] = link.title
+
+    # 找到第一个章节的第一个item
+    if len(toc_link_items) > 0:
+        initial_chapter_item = toc_link_items[0]
+
+    # 跳过第一个章节前的内容
+    for item_idx in range(0, len(items)):
+        if initial_chapter_item == items[item_idx]:
+            items = items[item_idx:]
+            break
+
+    chapters = find_all_chapters(items, toc_link_items)
+
+    num = 0
+    for chapter in chapters:
+
+        # 合并所有的chapter contents
+        if not chapter or len(chapter) == 0:
+            continue
+        initial_item = chapter[0]
+        (title, raw) = clearify_html(initial_item.get_content())
+        link_title = item_map_to_link_title[str(initial_item)]
+        chapter_title = title if title else link_title
+        for i in range(1, len(chapter)):
+            curr_item = chapter[i]
+            (_, _raw) = clearify_html(curr_item.get_content())
+            raw+=' '
+            raw+=_raw
+        
+        if not raw:
+            continue
+
         logger.info('=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=')
         logger.info(f'Title : {chapter_title}')
         logger.info('-----------------------------------')
