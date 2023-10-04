@@ -7,11 +7,11 @@ convert epub file to txt files separated according to TOC, then to audio file us
 # with default voice
 ./epub2audiobook.py /path/to/epub /path/to/output/
 
-# sepecify voice gender
-./epub2audiobook.py --gender Female /path/to/epub /path/to/output/
-
 # specify voice name
 ./epub2audiobook.py --voice_name zh-CN-YunyeNeural /path/to/epub /path/to/output/
+
+# run without outputs
+./epub2audiobook.py --dry_run /path/to/epub /path/to/output/
 ```
 
 ## denpendencies
