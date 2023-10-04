@@ -3,7 +3,7 @@ import edge_tts
 from edge_tts import VoicesManager
 import argparse
 from mutagen.mp3 import MP3
-from mutagen.id3 import TIT2, TPE1, TALB, TRCK
+from mutagen.id3 import TIT2, TPE1, TALB, TRCK, TCON
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
@@ -205,7 +205,6 @@ if __name__ == "__main__":
     parser.add_argument("output_folder", help="Path to the output folder")
     parser.add_argument("-t", "--tts", default=True, help="Convert text to audio (default: True)")
     parser.add_argument("-vo", "--voice_name", default="auto", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural, default: auto). show all available voices with command `edge-tts --list-voices`")
-    parser.add_argument("-sn", "--series_name", help="Series name of EPUB files, the album ID3 tag of audio file will be set to this value")
     parser.add_argument("-dr", "--dry_run", action="store_true", help="Run without outputs")
     parser.add_argument("-idx", "--index_of_epubs", default="all", help="The index of the selected EPUB files (e.g.: 0-3,5,7, default: all)")
 
@@ -213,7 +212,6 @@ if __name__ == "__main__":
     
     epub_file_path = config.input_file
     output_folder = config.output_folder
-    series_name = config.series_name
     tts = config.tts
     index_of_epubs = config.index_of_epubs
     
@@ -265,9 +263,9 @@ if __name__ == "__main__":
                     audio = MP3(audio_file)
                     audio["TIT2"] = TIT2(encoding=3, text=book_title)
                     audio["TPE1"] = TPE1(encoding=3, text=creator)
-                    if series_name:
-                        audio["TALB"] = TALB(encoding=3, text=series_name)
+                    audio["TALB"] = TALB(encoding=3, text=book_title)
                     audio["TRCK"] = TRCK(encoding=3, text=idx)
+                    audio["TCON"] = TCON(encoding=3, text="Audiobook")
                     audio.save()
     finally:
         loop.close()
