@@ -90,6 +90,10 @@ def get_first_image_item(book, item_type):
 
 # 定义函数来提取章节内容并保存到TXT文件
 def extract_and_save_chapters(epub_file_path, output_folder):
+    global config
+
+    dry_run = config.dry_run
+
     (book,toc) = get_toc(epub_file_path)
     creator = book.get_metadata('DC', 'creator')[0][0]
     book_title = book.get_metadata('DC', 'title')[0][0]
@@ -97,11 +101,11 @@ def extract_and_save_chapters(epub_file_path, output_folder):
 
     # 创建输出文件夹（如果不存在）
     output_folder = os.path.join(output_folder, replace_invalid_characters(creator))
-    if not os.path.exists(output_folder):
+    if not dry_run and not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
     output_folder = os.path.join(output_folder, replace_invalid_characters(book_title))
-    if not os.path.exists(output_folder):
+    if not dry_run and not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
     # 创建封面（如果有）
@@ -112,8 +116,10 @@ def extract_and_save_chapters(epub_file_path, output_folder):
     if coverItem:
         file_name, file_extension = os.path.splitext(coverItem.get_name())
         cover_file_path = os.path.join(output_folder, f'cover{file_extension}')
-        with open(cover_file_path, 'wb') as cover_file:
-            cover_file.write(coverItem.get_content())
+        logger.info(f"Save cover as {cover_file_path}")
+        if not dry_run:
+            with open(cover_file_path, 'wb') as cover_file:
+                cover_file.write(coverItem.get_content())
 
     text_and_file_names = []
     num = 0
@@ -133,9 +139,12 @@ def extract_and_save_chapters(epub_file_path, output_folder):
         txt_file_name = replace_invalid_characters(f"{idx}.{chapter_title}")
         txt_file = f"{txt_file_name}.txt"
         txt_file_path = os.path.join(output_folder, txt_file_name)
+
+        logger.info(f"Save chapter text as {txt_file_path}")
         
-        with open(txt_file_path, 'w', encoding='utf-8') as txt_file:
-            txt_file.write(raw)
+        if not dry_run:
+            with open(txt_file_path, 'w', encoding='utf-8') as txt_file:
+                txt_file.write(raw)
         
         text_and_file_names.append((raw, txt_file_name))
     return (output_folder, creator, book_title, language, text_and_file_names)
@@ -155,55 +164,58 @@ async def communicate_edge_tts(text, voice, audio_file, subtitle_file):
         file.write(submaker.generate_subs())
 
 # tts转为audio        
-async def text_to_speech(output_folder, creator, book_title, text_and_file_names, voice, gender, language):
-    
+async def text_to_speech(output_folder, creator, book_title, text_and_file_names, language):
+    global config
+
+    voice = config.voice_name
+    dry_run = config.dry_run
+
     id3_tags = []
     idx = 1
     
-    if gender and language:
+    if voice == 'auto' and language:
         voices = await VoicesManager.create()
-        voice = random.choice(voices.find(Gender=gender, Language=language))["Name"]
+        voice = random.choice(voices.find(Gender="Female", Language=language))["Name"]
         logger.info(f"Select voice >>{voice}<<")
 
-    for text_and_file_name in text_and_file_names:
-        (text, file_name) = text_and_file_name
+    if not dry_run:
+        for text_and_file_name in text_and_file_names:
+            (text, file_name) = text_and_file_name
 
-        if len(text.strip()) == 0:
-            continue
+            if len(text.strip()) == 0:
+                continue
 
-        audio_file = os.path.join(output_folder, f"{file_name}.mp3")
-        subtitle_file = os.path.join(output_folder, f"{file_name}.vtt")
+            audio_file = os.path.join(output_folder, f"{file_name}.mp3")
+            subtitle_file = os.path.join(output_folder, f"{file_name}.vtt")
 
-        logger.info(f"Generate audiobook >>>>> {audio_file} <<<<<")
-        await communicate_edge_tts(text, voice, audio_file, subtitle_file)
+            logger.info(f"Generate audiobook >>>>> {audio_file} <<<<<")
+            await communicate_edge_tts(text, voice, audio_file, subtitle_file)
 
-        id3_tags.append((audio_file, book_title, creator, str(idx)))
-        idx+=1
+            id3_tags.append((audio_file, book_title, creator, str(idx)))
+            idx+=1
 
     return id3_tags
 
+
+config = None
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser(description="Convert EPUB to audiobook")
     parser.add_argument("input_file", help="Path to the EPUB file or EPUB files folder")
     parser.add_argument("output_folder", help="Path to the output folder")
-    parser.add_argument("--tts", default=True, help="Convert text to audio (default: True)")
-    parser.add_argument("--gender", default="Female", help="[Female/Male] Voice gender for audio book, --voice_name will be ignored if this value is set")
-    parser.add_argument("--voice_name", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural). show all available voices with command `edge-tts --list-voices`")
-    parser.add_argument("--series_name", help="Series name of EPUB files, the album ID3 tag of audio file will be set to this value")
-    parser.add_argument("--preview_epubs_only", default=False, help="Preview indexed epub files only (default: False)")
-    parser.add_argument("--select_epubs", help="Index of selected epub files (e.g.: 0-3,5,7, default all epubs)")
+    parser.add_argument("-t", "--tts", default=True, help="Convert text to audio (default: True)")
+    parser.add_argument("-vo", "--voice_name", default="auto", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural, default: auto). show all available voices with command `edge-tts --list-voices`")
+    parser.add_argument("-sn", "--series_name", help="Series name of EPUB files, the album ID3 tag of audio file will be set to this value")
+    parser.add_argument("-dr", "--dry_run", action="store_true", help="Run without outputs")
+    parser.add_argument("-idx", "--index_of_epubs", default="all", help="The index of the selected EPUB files (e.g.: 0-3,5,7, default: all)")
 
-
-    args = parser.parse_args()
+    config = parser.parse_args()
     
-    epub_file_path = args.input_file
-    output_folder = args.output_folder
-    series_name = args.series_name
-    voice = args.voice_name
-    gender = args.gender
-    tts = args.tts
-    preview_epubs_only = args.preview_epubs_only
-    select_epubs = args.select_epubs
+    epub_file_path = config.input_file
+    output_folder = config.output_folder
+    series_name = config.series_name
+    tts = config.tts
+    index_of_epubs = config.index_of_epubs
     
     # 创建输出文件夹（如果不存在）
     if not os.path.exists(output_folder):
@@ -217,8 +229,8 @@ if __name__ == "__main__":
         epub_files.append(epub_file_path)
 
     epub_indexes = []
-    if select_epubs:
-        indexes = select_epubs.split(',')
+    if index_of_epubs and index_of_epubs != "all":
+        indexes = index_of_epubs.split(',')
         for ind in indexes:
             if ind.__contains__('-'):
                 from_to = ind.split('-')
@@ -229,26 +241,23 @@ if __name__ == "__main__":
             else:
                 epub_indexes.append(int(ind))
         
+    loop = asyncio.get_event_loop_policy().get_event_loop()
+    try:
+        epub_file_idx = -1
+        for epub_file in epub_files:
 
-    epub_file_idx = -1
-    for epub_file in epub_files:
+            epub_file_idx+=1
+            logger.info(f"<<<<File index>>>>\t{epub_file_idx} : {epub_file}")
 
-        epub_file_idx+=1
-        if preview_epubs_only:
-            logger.info(f"[{epub_file_idx}] - {epub_file}")
-            continue
+            if len(epub_indexes) != 0 and epub_file_idx not in epub_indexes:
+                continue
 
-        if len(epub_indexes) != 0 and not epub_indexes.__contains__(epub_file_idx):
-            continue
-
-        output_folder_and_text_and_file_names = extract_and_save_chapters(epub_file, output_folder)
+            output_folder_and_text_and_file_names = extract_and_save_chapters(epub_file, output_folder)
         
-        (n_output_folder, creator, book_title, language, text_and_file_names) = output_folder_and_text_and_file_names
+            (n_output_folder, creator, book_title, language, text_and_file_names) = output_folder_and_text_and_file_names
 
-        if tts == True:
-            loop = asyncio.get_event_loop_policy().get_event_loop()
-            try:
-                id3_tags = loop.run_until_complete(text_to_speech(n_output_folder, creator, book_title, text_and_file_names, voice, gender, language))
+            if tts == True:
+                id3_tags = loop.run_until_complete(text_to_speech(n_output_folder, creator, book_title, text_and_file_names, language))
 
                 for id3_tag in id3_tags:
                     (audio_file, book_title, creator, idx) = id3_tag
@@ -260,6 +269,5 @@ if __name__ == "__main__":
                         audio["TALB"] = TALB(encoding=3, text=series_name)
                     audio["TRCK"] = TRCK(encoding=3, text=idx)
                     audio.save()
-            finally:
-                loop.close()
-    
+    finally:
+        loop.close()
