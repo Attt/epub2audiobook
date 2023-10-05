@@ -14,6 +14,7 @@ import random
 import chardet
 import logging
 from retry import retry
+from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -214,20 +215,55 @@ async def communicate_edge_tts(text, voice, audio_file, subtitle_file):
     with open(subtitle_file, "w", encoding="utf-8") as file:
         file.write(submaker.generate_subs())
 
+@retry(tries=5, delay=1, backoff=3)
+def mac_say(text, voice, audio_file):
+    texts = text.split('\n')
+    idx = 0
+    for txt in texts:
+        if voice:
+            os.system(f"say -v '{voice}' -o '{audio_file}.{idx}.m4a' '{txt}'")
+        else:
+            os.system(f"say -o '{audio_file}.{idx}.m4a' '{txt}'")
+        idx+=1
+    
+    # merge audio files
+    combined_audio = AudioSegment.empty()
+
+    audio_idx = 0
+    while audio_idx < idx:
+        audio = AudioSegment.from_file(f"{audio_file}.{audio_idx}.m4a", format="m4a")
+        combined_audio += audio
+        combined_audio += AudioSegment.silent(duration=500)
+        audio_idx+=1
+
+    # write audio file
+    combined_audio.export(f"{audio_file}", format="mp3")
+
+    # delete temp files
+    audio_idx = 0
+    while audio_idx < idx:
+        os.remove(f"{audio_file}.{audio_idx}.m4a")
+        audio_idx+=1
+
 # tts转为audio        
 async def text_to_speech(output_folder, creator, book_title, text_and_file_names, language):
     global config
 
     voice = config.voice_name
     dry_run = config.dry_run
+    tts_method = config.tts_method
 
     id3_tags = []
     idx = 1
-    
-    if voice == 'auto' and language:
-        voices = await VoicesManager.create()
-        voice = random.choice(voices.find(Gender="Female", Language=language))["Name"]
-        logger.info(f"Select voice >>{voice}<<")
+
+    if tts_method == 'mac_say':
+        if voice == 'auto':
+            voice = None
+    else:
+        if voice == 'auto' and language:
+            voices = await VoicesManager.create()
+            voice = random.choice(voices.find(Gender="Female", Language=language))["Name"]
+            logger.info(f"Select voice >>{voice}<<")
 
     if not dry_run:
         for text_and_file_name in text_and_file_names:
@@ -240,7 +276,10 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
             subtitle_file = os.path.join(output_folder, f"{file_name}.vtt")
 
             logger.info(f"Generate audiobook >>>>> {audio_file} <<<<<")
-            await communicate_edge_tts(text, voice, audio_file, subtitle_file)
+            if tts_method == 'mac_say':
+                mac_say(text, voice, audio_file)
+            else:
+                await communicate_edge_tts(text, voice, audio_file, subtitle_file)
 
             id3_tags.append((audio_file, book_title, creator, str(idx)))
             idx+=1
@@ -255,7 +294,8 @@ if __name__ == "__main__":
     parser.add_argument("input_file", help="Path to the EPUB file or EPUB files folder")
     parser.add_argument("output_folder", help="Path to the output folder")
     parser.add_argument("-t", "--tts", default=True, help="Convert text to audio (default: True)")
-    parser.add_argument("-vo", "--voice_name", default="auto", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural, default: auto). show all available voices with command `edge-tts --list-voices`")
+    parser.add_argument("-tm", "--tts_method", default="edge_tts", help="Text-to-speech method (e.g.: mac_say, default: edge_tts)")
+    parser.add_argument("-vo", "--voice_name", default="auto", help="Voice name for the text-to-speech service (e.g.: ja-JP-NanamiNeural, default: auto). show all available voices with command `edge-tts --list-voices` or `say -v'?'`")
     parser.add_argument("-dr", "--dry_run", action="store_true", help="Run without outputs")
     parser.add_argument("-idx", "--index_of_epubs", default="all", help="The index of the selected EPUB files (e.g.: 0-3,5,7, default: all)")
 
