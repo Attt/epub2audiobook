@@ -70,12 +70,12 @@ def clearify_html(content):
     raw = raw.strip()
     raw = raw.strip('\n')
     raw = raw.strip('\r\n')
-    # raw = raw.replace('\r\n', ' ')
-    # raw = raw.replace('\n', ' ')
-    # raw = raw.replace(' ', '')
     raw = re.sub(r'(\r\n|\n)+', '\n', raw)
     raw = re.sub(r'!\[\]\([^)]+\)', '', raw)
     raw = re.sub(r'\[\]\([^)]+\)', '', raw)
+    lines = [line.strip() + ' ' for line in raw.split('\n')]
+    # 重新组合处理后的行
+    raw = '\n'.join(lines)
     raw = raw.encode('utf-8').decode('utf-8', 'ignore')
     return (title, raw)
 
