@@ -59,6 +59,13 @@ def get_toc(epub_file_path):
         logger.info(f'\t{link.title}')
     return (book, toc)
 
+def replace_all_jp_seiji_with_kakuchou(content):
+    global replace_dict
+    if replace_dict:
+        for key, value in replace_dict.items():
+            content = content.replace(key, value)
+    return content
+
 def clearify_html(content):
     charset = chardet.detect(content)['encoding']
     if not charset:
@@ -74,7 +81,7 @@ def clearify_html(content):
     raw = re.sub(r'(\r\n|\n)+', '\n', raw)
     raw = re.sub(r'!\[\]\([^)]+\)', '', raw)
     raw = re.sub(r'\[\]\([^)]+\)', '', raw)
-    lines = [line.strip() + ' ' for line in raw.split('\n')]
+    lines = [replace_all_jp_seiji_with_kakuchou(line.strip()) + ' ' for line in raw.split('\n')]
     # 重新组合处理后的行
     raw = '\n'.join(lines)
     raw = raw.encode('utf-8').decode('utf-8', 'ignore')
@@ -288,6 +295,8 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
 
 
 config = None
+replace_dict = None
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Convert EPUB to audiobook")
@@ -306,6 +315,15 @@ if __name__ == "__main__":
     tts = config.tts
     index_of_epubs = config.index_of_epubs
     
+    # 读取'正字体拡張新字体'字典
+    with open("./seiji_to_kakushin", 'r') as dict_file:
+        dictionary_content = dict_file.read().strip()
+        dictionary_pairs = dictionary_content.split('|')
+        replace_dict = {}
+        for pair in dictionary_pairs:
+            key, value = pair.split(',')
+            replace_dict[key] = value
+
     # 创建输出文件夹（如果不存在）
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
