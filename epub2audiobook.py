@@ -35,15 +35,18 @@ def replace_invalid_characters(input_string):
     cleaned_string = re.sub(invalid_characters, '_', input_string)
     return cleaned_string
 
-def find_all_chapters(items, toc_link_items):
+def find_all_chapters(items, toc_link_parts):
     chapters = []
-    current_chapter_items = []
+    current_chapter_parts = []
+    # TODO
     
-    for item in items:
-        if item in toc_link_items:
-            chapters.append(current_chapter_items)
-            current_chapter_items = []
-        current_chapter_items.append(item)
+    # current_chapter_items = []
+    
+    # for item in items:
+    #     if item in toc_link_items:
+    #         chapters.append(current_chapter_items)
+    #         current_chapter_items = []
+    #     current_chapter_items.append(item)
     return chapters
 
 
@@ -148,16 +151,19 @@ def extract_and_save_chapters(epub_file_path, output_folder):
     # 根据TOC拆分全文
     items = list(book.get_items())
     initial_chapter_item = items[0]
-    toc_link_items = []
-    item_map_to_link_title = {}
+    #toc_link_items = []
+    toc_link_parts = []
+    #item_map_to_link_title = {}
     for link in toc:
-        toc_link_item = book.get_item_with_href(remove_url_fragment(link.href))
-        toc_link_items.append(toc_link_item)
-        item_map_to_link_title[str(toc_link_item)] = link.title
+        rebuilt_url = remove_url_fragment(link.href)
+        toc_link_item = book.get_item_with_href(rebuilt_url)
+        #toc_link_items.append(toc_link_item)
+        toc_link_parts.append((toc_link_item, link.href, link.title))
+        #item_map_to_link_title[str(toc_link_item)] = link.title
 
     # 找到第一个章节的第一个item
-    if len(toc_link_items) > 0:
-        initial_chapter_item = toc_link_items[0]
+    if len(toc_link_parts) > 0:
+        initial_chapter_item, _, _ = toc_link_parts[0]
 
     # 跳过第一个章节前的内容
     for item_idx in range(0, len(items)):
@@ -165,7 +171,7 @@ def extract_and_save_chapters(epub_file_path, output_folder):
             items = items[item_idx:]
             break
 
-    chapters = find_all_chapters(items, toc_link_items)
+    chapters = find_all_chapters(items, toc_link_parts)
 
     num = 0
     for chapter in chapters:
