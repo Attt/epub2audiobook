@@ -347,7 +347,7 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
             else:
                 await communicate_edge_tts(text, voice, audio_file, subtitle_file)
 
-            id3_tags.append((audio_file, book_title, creator, str(idx)))
+            id3_tags.append((audio_file, book_title, file_name, creator, str(idx)))
             idx+=1
 
     return id3_tags
@@ -426,10 +426,10 @@ if __name__ == "__main__":
                 id3_tags = loop.run_until_complete(text_to_speech(n_output_folder, creator, book_title, text_and_file_names, language))
 
                 for id3_tag in id3_tags:
-                    (audio_file, book_title, creator, idx) = id3_tag
+                    (audio_file, book_title, file_name, creator, idx) = id3_tag
                     # Add ID3 tags to the generated MP3 file
                     audio = MP3(audio_file)
-                    audio["TIT2"] = TIT2(encoding=3, text=book_title)
+                    audio["TIT2"] = TIT2(encoding=3, text=file_name)
                     audio["TPE1"] = TPE1(encoding=3, text=creator)
                     audio["TALB"] = TALB(encoding=3, text=book_title)
                     audio["TRCK"] = TRCK(encoding=3, text=idx)
