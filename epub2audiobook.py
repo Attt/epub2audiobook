@@ -6,7 +6,7 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import TIT2, TPE1, TALB, TRCK, TCON
 import ebooklib
 from ebooklib import epub
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
 from urllib.parse import urlparse, urlunparse
 import os
 import re
@@ -17,6 +17,10 @@ from retry import retry
 from pydub import AudioSegment
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
+import warnings
+
+warnings.filterwarnings('ignore', category=XMLParsedAsHTMLWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -25,14 +29,13 @@ logger = logging.getLogger(__name__)
 
 # 章节链接信息
 class ChapterLinkInfo:
-    cursor = -1
-    id = None
-    anchor = None
-    title = None
-    links = []
 
     def __init__(self, links):
         self.links = links
+        self.title = None
+        self.anchor = None
+        self.id = None
+        self.cursor = -1
         self.nextChapter()
 
     def nextChapter(self):
@@ -42,9 +45,11 @@ class ChapterLinkInfo:
 
 # 章节解析结果
 class ChapterResultInfo:
-    start = False
-    chapters_xhtmls = []
-    chapters_xhtml = ''
+
+    def __init__(self):
+        self.start = False
+        self.chapters_xhtmls = []
+        self.chapters_xhtml = ''
 
     def chapterFound(self, title):
         if self.start:
@@ -71,7 +76,7 @@ class ChapterResultInfo:
             title = self.chapters_xhtmls[title_idx]
             raw_xhtml = self.chapters_xhtmls[title_idx + 1] if title_idx + 1 < len(self.chapters_xhtmls) else ''
 
-            raw_bs = BeautifulSoup(raw_xhtml, 'lxml')
+            raw_bs = BeautifulSoup(raw_xhtml, features="lxml")
 
             raw = raw_bs.get_text(strip=False)
             raw = raw.strip()
@@ -117,7 +122,7 @@ def get_toc(epub_file_path):
 def find_all_chapters(book, toc):
     content = merge_all_xhtml(book)
 
-    bs = BeautifulSoup(content, 'html.parser')
+    bs = BeautifulSoup(content, features="lxml")
 
     chapter_links = []
     for chpt in toc:
@@ -163,13 +168,13 @@ def walk_tags(tag, chapter_info: ChapterLinkInfo, result: ChapterResultInfo):
 # 合并所有的xhtml的body内容
 def merge_all_xhtml(book):
     xhtml = ''
-    for item in book.get_items():
+    for item in tqdm(book.items, desc="Merging", unit="item"):
         charset = chardet.detect(item.get_content())['encoding']
         if not charset:
             charset = 'utf-8'
         logger.debug(f"item {item.id} charset is {charset}")
         raw_content = re.sub(r'<rt>.*?</rt>', '', item.get_content().decode(charset, 'ignore'))
-        raw_bs = BeautifulSoup(raw_content, 'html.parser')
+        raw_bs = BeautifulSoup(raw_content, features="lxml")
         body_tag = raw_bs.find('body')
         if not body_tag:
             continue
