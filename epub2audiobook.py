@@ -169,6 +169,8 @@ def walk_tags(tag, chapter_info: ChapterLinkInfo, result: ChapterResultInfo):
 def merge_all_xhtml(book):
     xhtml = ''
     for item in tqdm(book.items, desc="Merging", unit="item"):
+        if item.get_type() != ebooklib.ITEM_DOCUMENT:
+            continue
         charset = chardet.detect(item.get_content())['encoding']
         if not charset:
             charset = 'utf-8'
