@@ -18,6 +18,7 @@ from pydub import AudioSegment
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 import warnings
+from collections import deque
 
 warnings.filterwarnings('ignore', category=XMLParsedAsHTMLWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -134,7 +135,7 @@ def find_all_chapters(book, toc):
 
     result = ChapterResultInfo()
     for tag in bs.contents:
-        walk_tags(tag, ChapterLinkInfo(chapter_links), result)
+        walk_tags1(tag, ChapterLinkInfo(chapter_links), result)
 
     return result.getAllChapters()
 
@@ -145,6 +146,43 @@ def replace_all_jp_seiji_with_kakuchou(content):
         for key, value in replace_dict.items():
             content = content.replace(key, value)
     return content
+
+# 遍历所有的tag(iterative)
+def walk_tags1(tag, chapter_info: ChapterLinkInfo, result: ChapterResultInfo):
+    """
+    tag: 当前的tag
+    chapter_info: 章节链接信息
+    result: 处理结果
+    """
+    visited = {}
+    stack = deque()
+    stack.append(tag)
+
+    while stack:
+        cur_tag = stack.pop()
+        if not str(cur_tag) in visited:
+            visited[str(cur_tag)] = 'x'
+            stack.append(cur_tag)
+
+            if isinstance(cur_tag, str): 
+                continue
+
+            if (not chapter_info.anchor and cur_tag.get('name') and cur_tag.get('name') == chapter_info.id) or (cur_tag.get('id') and cur_tag.get('id') == chapter_info.anchor):
+                result.chapterFound(chapter_info.title)
+                chapter_info.nextChapter()
+            
+            result.append(f'<{cur_tag.name}>')
+            for i in range(0, len(cur_tag.contents)):
+                r_idx = len(cur_tag.contents) - 1 - i
+                child = cur_tag.contents[r_idx]
+                stack.append(child)
+                
+        else:
+            if isinstance(cur_tag, str):
+                result.append(cur_tag)
+            else:
+                result.append(f"</{cur_tag.name}>")
+
 
 # 遍历所有的tag
 def walk_tags(tag, chapter_info: ChapterLinkInfo, result: ChapterResultInfo):
