@@ -6,7 +6,7 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import TIT2, TPE1, TALB, TRCK, TCON
 import ebooklib
 from ebooklib import epub
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag, XMLParsedAsHTMLWarning
 from urllib.parse import urlparse, urlunparse
 import os
 import re
@@ -15,18 +15,91 @@ import chardet
 import logging
 from retry import retry
 from pydub import AudioSegment
+from tqdm import tqdm
+from tqdm.asyncio import tqdm_asyncio
+import warnings
+from collections import deque
+
+warnings.filterwarnings('ignore', category=XMLParsedAsHTMLWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
+
+# 章节链接信息
+class ChapterLinkInfo:
+
+    def __init__(self, links):
+        self.links = links
+        self.title = None
+        self.anchor = None
+        self.id = None
+        self.cursor = -1
+        self.nextChapter()
+
+    def nextChapter(self):
+        if self.cursor < len(self.links) - 1:
+            self.cursor += 1
+            self.id, self.anchor, self.title = self.links[self.cursor]
+
+# 章节解析结果
+class ChapterResultInfo:
+
+    def __init__(self):
+        self.start = False
+        self.chapters_xhtmls = []
+        self.chapters_xhtml = ''
+
+    def chapterFound(self, title):
+        if self.start:
+            self.chapters_xhtmls.append(self.chapters_xhtml)
+        self.start = True
+        self.chapters_xhtmls.append(title)
+        self.chapters_xhtml = ''
+
+    def append(self, content):
+        self.chapters_xhtml += content
+
+    def isFirstChapterFound(self):
+        return self.start
     
+    # [(title, text)]
+    def getAllChapters(self):
+        if self.chapters_xhtml:
+            self.chapters_xhtmls.append(self.chapters_xhtml)
+            self.chapters_xhtml = ''
+    
+        chapters = []
+        title_idx = 0
+        for title_idx in range(0, len(self.chapters_xhtmls), 2):
+            title = self.chapters_xhtmls[title_idx]
+            raw_xhtml = self.chapters_xhtmls[title_idx + 1] if title_idx + 1 < len(self.chapters_xhtmls) else ''
+
+            raw_bs = BeautifulSoup(raw_xhtml, features="lxml")
+
+            raw = raw_bs.get_text(strip=False)
+            raw = raw.strip()
+            raw = raw.strip('\n')
+            raw = raw.strip('\r\n')
+            raw = re.sub(r'(\r\n|\n)+', '\n', raw)
+            raw = re.sub(r'!\[\]\([^)]+\)', '', raw)
+            raw = re.sub(r'\[\]\([^)]+\)', '', raw)
+            lines = [replace_all_jp_seiji_with_kakuchou(line.strip()) + ' ' for line in raw.split('\n')]
+            # 重新组合处理后的行
+            raw = '\n'.join(lines)
+            raw = raw.encode('utf-8').decode('utf-8', 'ignore')
+
+            chapters.append((title, raw))
+        return chapters
+
 def remove_url_fragment(url):
     parsed_url = urlparse(url)
     # 构建一个新的具有相同属性的URL，但fragment部分为空
     modified_url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path,
                                parsed_url.params, '', parsed_url.query))
-    return modified_url
+    return modified_url, parsed_url.fragment
 
 def replace_invalid_characters(input_string):
     # 定义不合法的字符集合
@@ -34,18 +107,6 @@ def replace_invalid_characters(input_string):
     # 使用正则表达式将不合法字符替换为下划线
     cleaned_string = re.sub(invalid_characters, '_', input_string)
     return cleaned_string
-
-def find_all_chapters(items, toc_link_items):
-    chapters = []
-    current_chapter_items = []
-    
-    for item in items:
-        if item in toc_link_items:
-            chapters.append(current_chapter_items)
-            current_chapter_items = []
-        current_chapter_items.append(item)
-    return chapters
-
 
 def get_toc(epub_file_path):
     book = epub.read_epub(epub_file_path)
@@ -59,6 +120,26 @@ def get_toc(epub_file_path):
         logger.info(f'\t{link.title}')
     return (book, toc)
 
+def find_all_chapters(book, toc):
+    content = merge_all_xhtml(book)
+
+    bs = BeautifulSoup(content, features="lxml")
+
+    chapter_links = []
+    for chpt in toc:
+        href, anchor = remove_url_fragment(chpt.href)
+        chpt_item = book.get_item_with_href(href)
+        if not bs.find(id = anchor):
+            anchor = ''
+        chapter_links.append((chpt_item.id, anchor, chpt.title))
+
+    result = ChapterResultInfo()
+    for tag in bs.contents:
+        walk_tags1(tag, ChapterLinkInfo(chapter_links), result)
+
+    return result.getAllChapters()
+
+
 def replace_all_jp_seiji_with_kakuchou(content):
     global replace_dict
     if replace_dict:
@@ -66,26 +147,81 @@ def replace_all_jp_seiji_with_kakuchou(content):
             content = content.replace(key, value)
     return content
 
-def clearify_html(content):
-    charset = chardet.detect(content)['encoding']
-    if not charset:
-        charset = 'utf-8'
-    logger.info(f"Charset is {charset}")
-    content = re.sub(r'<rt>.*?</rt>', '', content.decode(charset, 'ignore')) # 移除<rt>和</rt>之间的内容(移除注音)
-    soup = BeautifulSoup(content, 'lxml', from_encoding=charset)
-    title = soup.title.string if soup.title else ''
-    raw = soup.get_text(strip=False)
-    raw = raw.strip()
-    raw = raw.strip('\n')
-    raw = raw.strip('\r\n')
-    raw = re.sub(r'(\r\n|\n)+', '\n', raw)
-    raw = re.sub(r'!\[\]\([^)]+\)', '', raw)
-    raw = re.sub(r'\[\]\([^)]+\)', '', raw)
-    lines = [replace_all_jp_seiji_with_kakuchou(line.strip()) + ' ' for line in raw.split('\n')]
-    # 重新组合处理后的行
-    raw = '\n'.join(lines)
-    raw = raw.encode('utf-8').decode('utf-8', 'ignore')
-    return (title, raw)
+# 遍历所有的tag(iterative)
+def walk_tags1(tag, chapter_info: ChapterLinkInfo, result: ChapterResultInfo):
+    """
+    tag: 当前的tag
+    chapter_info: 章节链接信息
+    result: 处理结果
+    """
+    visited = {}
+    stack = deque()
+    stack.append(tag)
+
+    while stack:
+        cur_tag = stack.pop()
+        if not str(cur_tag) in visited:
+            visited[str(cur_tag)] = 'x'
+            stack.append(cur_tag)
+
+            if isinstance(cur_tag, str): 
+                continue
+
+            if (not chapter_info.anchor and cur_tag.get('name') and cur_tag.get('name') == chapter_info.id) or (cur_tag.get('id') and cur_tag.get('id') == chapter_info.anchor):
+                result.chapterFound(chapter_info.title)
+                chapter_info.nextChapter()
+            
+            result.append(f'<{cur_tag.name}>')
+            for i in range(0, len(cur_tag.contents)):
+                r_idx = len(cur_tag.contents) - 1 - i
+                child = cur_tag.contents[r_idx]
+                stack.append(child)
+                
+        else:
+            if isinstance(cur_tag, str):
+                result.append(cur_tag)
+            else:
+                result.append(f"</{cur_tag.name}>")
+
+
+# 遍历所有的tag
+def walk_tags(tag, chapter_info: ChapterLinkInfo, result: ChapterResultInfo):
+    """
+    tag: 当前的tag
+    chapter_info: 章节链接信息
+    result: 处理结果
+    """
+    if (not chapter_info.anchor and tag.get('name') and tag.get('name') == chapter_info.id) or (tag.get('id') and tag.get('id') == chapter_info.anchor):
+        result.chapterFound(chapter_info.title)
+        chapter_info.nextChapter()
+        
+    result.append(f'<{tag.name}>')
+    for tag_content in tag.contents:
+        if isinstance(tag_content, str):
+            result.append(tag_content)
+        elif isinstance(tag_content, Tag):
+            walk_tags(tag_content, chapter_info, result)
+    result.append(f'</{tag.name}>')
+
+# 合并所有的xhtml的body内容
+def merge_all_xhtml(book):
+    xhtml = ''
+    for item in tqdm(book.items, desc="Merging", unit="item"):
+        if item.get_type() != ebooklib.ITEM_DOCUMENT:
+            continue
+        charset = chardet.detect(item.get_content())['encoding']
+        if not charset:
+            charset = 'utf-8'
+        logger.debug(f"item {item.id} charset is {charset}")
+        raw_content = re.sub(r'<rt>.*?</rt>', '', item.get_content().decode(charset, 'ignore'))
+        raw_bs = BeautifulSoup(raw_content, features="lxml")
+        body_tag = raw_bs.find('body')
+        if not body_tag:
+            continue
+        body_tag.name = 'p'
+        body_tag.attrs['name'] = item.id
+        xhtml += str(body_tag)
+    return '<html><body>' + xhtml + '</body><html>'
 
 def find_all_epub_files(epub_file_path):
     epub_files = []
@@ -146,50 +282,18 @@ def extract_and_save_chapters(epub_file_path, output_folder):
     text_and_file_names = []
 
     # 根据TOC拆分全文
-    items = list(book.get_items())
-    initial_chapter_item = items[0]
-    toc_link_items = []
-    item_map_to_link_title = {}
-    for link in toc:
-        toc_link_item = book.get_item_with_href(remove_url_fragment(link.href))
-        toc_link_items.append(toc_link_item)
-        item_map_to_link_title[str(toc_link_item)] = link.title
-
-    # 找到第一个章节的第一个item
-    if len(toc_link_items) > 0:
-        initial_chapter_item = toc_link_items[0]
-
-    # 跳过第一个章节前的内容
-    for item_idx in range(0, len(items)):
-        if initial_chapter_item == items[item_idx]:
-            items = items[item_idx:]
-            break
-
-    chapters = find_all_chapters(items, toc_link_items)
+    chapters = find_all_chapters(book, toc)
 
     num = 0
-    for chapter in chapters:
+    for chapter_title, chapter in chapters:
 
-        # 合并所有的chapter contents
-        if not chapter or len(chapter) == 0:
-            continue
-        initial_item = chapter[0]
-        (title, raw) = clearify_html(initial_item.get_content())
-        link_title = item_map_to_link_title[str(initial_item)]
-        chapter_title = title if title else link_title
-        for i in range(1, len(chapter)):
-            curr_item = chapter[i]
-            (_, _raw) = clearify_html(curr_item.get_content())
-            raw+=' '
-            raw+=_raw
-        
-        if not raw:
+        if not chapter:
             continue
 
         logger.info('=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=')
         logger.info(f'Title : {chapter_title}')
         logger.info('-----------------------------------')
-        logger.info(raw.strip()[:20])
+        logger.info(f'{chapter.strip()[:20]}...char length: {len(chapter)}')
         logger.info('=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=')
         
         idx = str(num).zfill(2)
@@ -203,9 +307,9 @@ def extract_and_save_chapters(epub_file_path, output_folder):
         
         if not dry_run:
             with open(txt_file_path, 'w', encoding='utf-8') as txt_file:
-                txt_file.write(raw)
+                txt_file.write(chapter)
         
-        text_and_file_names.append((raw, txt_file_name))
+        text_and_file_names.append((chapter, txt_file_name))
     return (output_folder, creator, book_title, language, text_and_file_names)
 
 @retry(tries=5, delay=1, backoff=3)
@@ -213,7 +317,7 @@ async def communicate_edge_tts(text, voice, audio_file, subtitle_file):
     communicate = edge_tts.Communicate(text, voice)
     submaker = edge_tts.SubMaker()
     with open(audio_file, "wb") as file:
-        async for chunk in communicate.stream():
+        async for chunk in tqdm_asyncio(communicate.stream(), desc="Streaming TTS"):
             if chunk["type"] == "audio":
                 file.write(chunk["data"])
             elif chunk["type"] == "WordBoundary":
@@ -226,7 +330,7 @@ async def communicate_edge_tts(text, voice, audio_file, subtitle_file):
 def mac_say(text, voice, audio_file):
     texts = text.split('\n')
     idx = 0
-    for txt in texts:
+    for txt in tqdm(texts, desc="Processing TTS"):
         if voice:
             os.system(f"say -v '{voice}' -o '{audio_file}.{idx}.m4a' '{txt}'")
         else:
@@ -288,7 +392,7 @@ async def text_to_speech(output_folder, creator, book_title, text_and_file_names
             else:
                 await communicate_edge_tts(text, voice, audio_file, subtitle_file)
 
-            id3_tags.append((audio_file, book_title, creator, str(idx)))
+            id3_tags.append((audio_file, book_title, file_name, creator, str(idx)))
             idx+=1
 
     return id3_tags
@@ -367,10 +471,10 @@ if __name__ == "__main__":
                 id3_tags = loop.run_until_complete(text_to_speech(n_output_folder, creator, book_title, text_and_file_names, language))
 
                 for id3_tag in id3_tags:
-                    (audio_file, book_title, creator, idx) = id3_tag
+                    (audio_file, book_title, file_name, creator, idx) = id3_tag
                     # Add ID3 tags to the generated MP3 file
                     audio = MP3(audio_file)
-                    audio["TIT2"] = TIT2(encoding=3, text=book_title)
+                    audio["TIT2"] = TIT2(encoding=3, text=file_name)
                     audio["TPE1"] = TPE1(encoding=3, text=creator)
                     audio["TALB"] = TALB(encoding=3, text=book_title)
                     audio["TRCK"] = TRCK(encoding=3, text=idx)

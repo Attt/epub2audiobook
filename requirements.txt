@@ -2,6 +2,8 @@ beautifulsoup4==4.12.2
 chardet==5.2.0
 EbookLib==0.18
 edge_tts==6.1.8
+lxml==4.9.3
 mutagen==1.47.0
 pydub==0.25.1
 retry==0.9.2
+tqdm==4.66.1
